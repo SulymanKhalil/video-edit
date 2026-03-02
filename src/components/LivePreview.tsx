@@ -1,58 +1,66 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { VideoFile, AspectRatio, ASPECT_RATIO_CONFIGS } from '../types';
+import { VideoFile, AspectRatio, TrimSettings } from '../types';
+import TrimControls from './TrimControls';
 
 interface LivePreviewProps {
   videoFile: VideoFile;
-  trimSettings: { startTime: number; endTime: number };
+  trimSettings: TrimSettings;
   aspectRatio: AspectRatio;
+  onTrimChange: (trimSettings: TrimSettings) => void;
+  videoRef?: React.RefObject<HTMLVideoElement>;
+  canvasRef?: React.RefObject<HTMLCanvasElement>;
 }
 
 const LivePreview: React.FC<LivePreviewProps> = ({
   videoFile,
   trimSettings,
-  aspectRatio
+  aspectRatio,
+  onTrimChange,
+  videoRef: externalVideoRef,
+  canvasRef: externalCanvasRef,
 }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const videoRef = externalVideoRef || useRef<HTMLVideoElement>(null);
   const animationRef = useRef<number>();
   const [isPlaying, setIsPlaying] = useState(false);
+  const [videoDimensions, setVideoDimensions] = useState({ width: 0, height: 0 });
+  const [videoElementDimensions, setVideoElementDimensions] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
     const video = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) return;
+    if (video && videoFile) {
+      video.src = videoFile.url;
+      video.currentTime = trimSettings.startTime;
+      
+      const handleLoadedMetadata = () => {
+        setVideoDimensions({ width: video.videoWidth, height: video.videoHeight });
+      };
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+      const handleResize = () => {
+        if (video.offsetWidth && video.offsetHeight) {
+          setVideoElementDimensions({ width: video.offsetWidth, height: video.offsetHeight });
+        }
+      };
+      
+      video.addEventListener('loadedmetadata', handleLoadedMetadata);
+      video.addEventListener('loadedmetadata', handleResize);
+      video.addEventListener('resize', handleResize);
+      
+      handleResize();
+      
+      return () => {
+        video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+        video.removeEventListener('loadedmetadata', handleResize);
+        video.removeEventListener('resize', handleResize);
+      };
+    }
+  }, [videoFile, trimSettings]);
 
-    const { width: outputWidth, height: outputHeight } = ASPECT_RATIO_CONFIGS[aspectRatio];
-    canvas.width = outputWidth;
-    canvas.height = outputHeight;
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
 
     const drawFrame = () => {
       if (!video.paused && !video.ended) {
-        ctx.fillStyle = 'black';
-        ctx.fillRect(0, 0, outputWidth, outputHeight);
-
-        const videoAspectRatio = video.videoWidth / video.videoHeight;
-        const targetAspectRatio = outputWidth / outputHeight;
-
-        let drawWidth = outputWidth;
-        let drawHeight = outputHeight;
-        let offsetX = 0;
-        let offsetY = 0;
-
-        if (videoAspectRatio > targetAspectRatio) {
-          drawHeight = outputHeight;
-          drawWidth = drawHeight * videoAspectRatio;
-          offsetX = (outputWidth - drawWidth) / 2;
-        } else {
-          drawWidth = outputWidth;
-          drawHeight = drawWidth / videoAspectRatio;
-          offsetY = (outputHeight - drawHeight) / 2;
-        }
-
-        ctx.drawImage(video, offsetX, offsetY, drawWidth, drawHeight);
         animationRef.current = requestAnimationFrame(drawFrame);
       }
     };
@@ -69,22 +77,12 @@ const LivePreview: React.FC<LivePreviewProps> = ({
       }
     });
 
-    video.addEventListener('seeked', drawFrame);
-
     return () => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [aspectRatio]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (video && videoFile) {
-      video.src = videoFile.url;
-      video.currentTime = trimSettings.startTime;
-    }
-  }, [videoFile, trimSettings]);
+  }, []);
 
   const handlePlay = () => {
     const video = videoRef.current;
@@ -109,54 +107,133 @@ const LivePreview: React.FC<LivePreviewProps> = ({
     }
   };
 
-  return (
-    <div className="bg-gray-800/50 rounded-lg p-6">
-      <div className="mb-4">
-        <h3 className="text-lg font-semibold text-white">Live Preview</h3>
-      </div>
+  const getCropOverlayStyle = () => {
+    if (!videoDimensions.width || !videoDimensions.height || !videoElementDimensions.width || !videoElementDimensions.height) {
+      return { display: 'none' };
+    }
+    
+    const videoAspectRatio = videoDimensions.width / videoDimensions.height;
+    const targetAspectRatio = parseFloat(aspectRatio.split(':')[0]) / parseFloat(aspectRatio.split(':')[1]);
+    
+    let cropWidth, cropHeight;
+    
+    if (videoAspectRatio > targetAspectRatio) {
+      cropHeight = videoElementDimensions.height;
+      cropWidth = cropHeight * targetAspectRatio;
+    } else {
+      cropWidth = videoElementDimensions.width;
+      cropHeight = cropWidth / targetAspectRatio;
+    }
+    
+    const left = (videoElementDimensions.width - cropWidth) / 2;
+    const top = (videoElementDimensions.height - cropHeight) / 2;
+    
+    return {
+      width: `${cropWidth}px`,
+      height: `${cropHeight}px`,
+      left: `${left}px`,
+      top: `${top}px`,
+      display: 'block'
+    };
+  };
 
-      <div className="space-y-4">
-        <div className="relative bg-black rounded-lg overflow-hidden">
+  return (
+    <div className="space-y-4">
+      <div className="relative bg-black overflow-hidden flex justify-center items-center" style={{ minHeight: '120px' }}>
+        <div className="relative w-3/5">
           <video
             ref={videoRef}
-            className="hidden"
+            className="w-full h-auto object-contain"
             preload="metadata"
           />
+          
+          {/* Hidden canvas for processing */}
           <canvas
-            ref={canvasRef}
-            className="w-full h-auto max-h-[600px] object-contain"
+            ref={externalCanvasRef}
+            className="hidden"
+            style={{ display: 'none' }}
           />
           
-          <div className="absolute bottom-4 left-4 right-4 flex items-center space-x-2">
-            <button
-              onClick={handlePlay}
-              disabled={isPlaying}
-              className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </button>
-            
-            <button
-              onClick={handlePause}
-              disabled={!isPlaying}
-              className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </button>
-          </div>
+          {videoDimensions.width > 0 && videoElementDimensions.width > 0 && (
+            <>
+              <div
+                className="absolute bg-black pointer-events-none"
+                style={{
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: `${getCropOverlayStyle().top}px`,
+                  opacity: 0.9
+                }}
+              />
+              <div
+                className="absolute bg-black pointer-events-none"
+                style={{
+                  top: `${getCropOverlayStyle().top}px`,
+                  left: 0,
+                  width: `${getCropOverlayStyle().left}px`,
+                  height: `${getCropOverlayStyle().height}px`,
+                  opacity: 0.9
+                }}
+              />
+              <div
+                className="absolute bg-black pointer-events-none"
+                style={{
+                  top: `${getCropOverlayStyle().top}px`,
+                  right: 0,
+                  width: `${getCropOverlayStyle().left}px`,
+                  height: `${getCropOverlayStyle().height}px`,
+                  opacity: 0.9
+                }}
+              />
+              <div
+                className="absolute bg-black pointer-events-none"
+                style={{
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: `${getCropOverlayStyle().top}px`,
+                  opacity: 0.9
+                }}
+              />
+              <div className="absolute border-2 border-white shadow-lg pointer-events-none"
+                style={getCropOverlayStyle()}
+              >
+                <div className="absolute inset-0 border border-white/30"></div>
+              </div>
+            </>
+          )}
         </div>
-
-        <div className="text-sm text-gray-400">
-          <p>Preview shows: {ASPECT_RATIO_CONFIGS[aspectRatio].label}</p>
-          <p>Trim range: {trimSettings.startTime.toFixed(1)}s - {trimSettings.endTime.toFixed(1)}s</p>
-          <p>Duration: {(trimSettings.endTime - trimSettings.startTime).toFixed(1)}s</p>
+        
+        <div className="absolute bottom-4 left-4 right-4 flex items-center space-x-2">
+          <button
+            onClick={handlePlay}
+            disabled={isPlaying}
+            className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
+          
+          <button
+            onClick={handlePause}
+            disabled={!isPlaying}
+            className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
         </div>
       </div>
+
+      <TrimControls
+        trimSettings={trimSettings}
+        duration={videoFile.duration}
+        onTrimChange={onTrimChange}
+      />
     </div>
   );
 };

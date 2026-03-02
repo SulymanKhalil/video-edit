@@ -1,13 +1,10 @@
 import React, { useState, useRef, useCallback } from 'react';
 import UploadSection from './components/UploadSection';
 import LivePreview from './components/LivePreview';
-import TrimControls from './components/TrimControls';
-import RatioSelector from './components/RatioSelector';
 import ActionButtons from './components/ActionButtons';
 import { 
   VideoFile, 
   VideoEditorState, 
-  AspectRatio, 
   ASPECT_RATIO_CONFIGS 
 } from './types';
 
@@ -38,7 +35,7 @@ const App: React.FC = () => {
     setState(prev => ({ ...prev, trimSettings }));
   }, []);
 
-  const handleRatioChange = useCallback((aspectRatio: AspectRatio) => {
+  const handleRatioChange = useCallback((aspectRatio: VideoEditorState['aspectRatio']) => {
     setState(prev => ({ ...prev, aspectRatio }));
   }, []);
 
@@ -118,38 +115,41 @@ const App: React.FC = () => {
           return;
         }
 
-        if (Math.abs(video.currentTime - currentTime) > 0.1) {
-          video.currentTime = currentTime;
+        // Ensure video is loaded and has valid dimensions
+        if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+          if (Math.abs(video.currentTime - currentTime) > 0.1) {
+            video.currentTime = currentTime;
+          }
+
+          ctx.fillStyle = 'black';
+          ctx.fillRect(0, 0, outputWidth, outputHeight);
+
+          const videoAspectRatio = video.videoWidth / video.videoHeight;
+          const targetAspectRatio = outputWidth / outputHeight;
+
+          let drawWidth = outputWidth;
+          let drawHeight = outputHeight;
+          let offsetX = 0;
+          let offsetY = 0;
+
+          if (videoAspectRatio > targetAspectRatio) {
+            drawHeight = outputHeight;
+            drawWidth = drawHeight * videoAspectRatio;
+            offsetX = (outputWidth - drawWidth) / 2;
+          } else {
+            drawWidth = outputWidth;
+            drawHeight = drawWidth / videoAspectRatio;
+            offsetY = (outputHeight - drawHeight) / 2;
+          }
+
+          ctx.drawImage(video, offsetX, offsetY, drawWidth, drawHeight);
+
+          const progress = (elapsed / duration) * 100;
+          setState(prev => ({
+            ...prev,
+            processing: { ...prev.processing, progress: Math.min(progress, 99) }
+          }));
         }
-
-        ctx.fillStyle = 'black';
-        ctx.fillRect(0, 0, outputWidth, outputHeight);
-
-        const videoAspectRatio = video.videoWidth / video.videoHeight;
-        const targetAspectRatio = outputWidth / outputHeight;
-
-        let drawWidth = outputWidth;
-        let drawHeight = outputHeight;
-        let offsetX = 0;
-        let offsetY = 0;
-
-        if (videoAspectRatio > targetAspectRatio) {
-          drawHeight = outputHeight;
-          drawWidth = drawHeight * videoAspectRatio;
-          offsetX = (outputWidth - drawWidth) / 2;
-        } else {
-          drawWidth = outputWidth;
-          drawHeight = drawWidth / videoAspectRatio;
-          offsetY = (outputHeight - drawHeight) / 2;
-        }
-
-        ctx.drawImage(video, offsetX, offsetY, drawWidth, drawHeight);
-
-        const progress = (elapsed / duration) * 100;
-        setState(prev => ({
-          ...prev,
-          processing: { ...prev.processing, progress: Math.min(progress, 99) }
-        }));
 
         requestAnimationFrame(drawFrame);
       };
@@ -166,19 +166,6 @@ const App: React.FC = () => {
     }
   }, [state.videoFile, state.trimSettings, state.aspectRatio]);
 
-  const downloadVideo = useCallback(() => {
-    if (!state.processedBlob) return;
-
-    const url = URL.createObjectURL(state.processedBlob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `edited-video-${Date.now()}.webm`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, [state.processedBlob]);
-
   const handleNewUpload = useCallback(() => {
     setState(prev => ({
       ...prev,
@@ -189,14 +176,22 @@ const App: React.FC = () => {
     setError(null);
   }, []);
 
-  return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      <div className="container mx-auto px-4 py-8">
-        <header className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-white mb-2">Video Editor</h1>
-          <p className="text-gray-400">Edit your videos directly in the browser</p>
-        </header>
+  const downloadVideo = useCallback(() => {
+    if (!state.processedBlob) return;
+    
+    const url = URL.createObjectURL(state.processedBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `edited-video-${Date.now()}.mp4`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [state.processedBlob]);
 
+  return (
+    <div className="min-h-screen bg-gray-900 text-white flex flex-col">
+      <div className="flex-1 container mx-auto px-4 py-4 flex flex-col">
         {!state.videoFile ? (
           <UploadSection
             onVideoUpload={handleVideoUpload}
@@ -204,49 +199,55 @@ const App: React.FC = () => {
             onError={setError}
           />
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div className="space-y-8">
-              <TrimControls
-                trimSettings={state.trimSettings}
-                duration={state.videoFile.duration}
-                onTrimChange={handleTrimChange}
-              />
+          <div className="flex-1 space-y-4">
+            <div className="bg-gray-800/50 rounded-lg border border-gray-700 flex-1 flex flex-col">
+              <div className="flex-1 space-y-4">
+                <LivePreview
+                  videoFile={state.videoFile}
+                  trimSettings={state.trimSettings}
+                  aspectRatio={state.aspectRatio}
+                  onTrimChange={handleTrimChange}
+                  videoRef={videoRef}
+                  canvasRef={canvasRef}
+                />
+              </div>
 
-              <RatioSelector
-                aspectRatio={state.aspectRatio}
-                onRatioChange={handleRatioChange}
-              />
-            </div>
+              <div className="p-4 space-y-3">
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <div className="flex-1">
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(ASPECT_RATIO_CONFIGS).map(([ratio]) => (
+                        <button
+                          key={ratio}
+                          onClick={() => handleRatioChange(ratio as VideoEditorState['aspectRatio'])}
+                          className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium whitespace-nowrap ${
+                            state.aspectRatio === ratio
+                              ? 'border-blue-500 bg-blue-500/20 text-blue-400'
+                              : 'border-gray-600 bg-gray-700/50 text-gray-300 hover:border-gray-500 hover:text-gray-200'
+                          }`}
+                        >
+                          {ratio}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-            <div className="space-y-8">
-              <LivePreview
-                videoFile={state.videoFile}
-                trimSettings={state.trimSettings}
-                aspectRatio={state.aspectRatio}
-              />
-              
-              <ActionButtons
-                onApplyChanges={processVideo}
-                onDownload={downloadVideo}
-                onNewUpload={handleNewUpload}
-                isProcessing={state.processing.isProcessing}
-                hasProcessedVideo={!!state.processedBlob}
-                hasVideo={!!state.videoFile}
-                processingProgress={state.processing.progress}
-              />
+                  <div className="flex-shrink-0">
+                    <ActionButtons
+                      onApplyChanges={processVideo}
+                      onDownload={downloadVideo}
+                      onNewUpload={handleNewUpload}
+                      isProcessing={state.processing.isProcessing}
+                      hasProcessedVideo={!!state.processedBlob}
+                      hasVideo={!!state.videoFile}
+                      processingProgress={state.processing.progress}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}
-
-        <video
-          ref={videoRef}
-          className="hidden"
-          preload="auto"
-        />
-        <canvas
-          ref={canvasRef}
-          className="hidden"
-        />
       </div>
     </div>
   );
