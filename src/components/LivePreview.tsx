@@ -156,47 +156,54 @@ const LivePreview: React.FC<LivePreviewProps> = ({
           
           {videoDimensions.width > 0 && videoElementDimensions.width > 0 && (
             <>
+              {/* Top overlay */}
               <div
                 className="absolute bg-black pointer-events-none"
                 style={{
                   top: 0,
                   left: 0,
                   right: 0,
-                  height: `${getCropOverlayStyle().top}px`,
+                  height: `${getCropOverlayStyle().top || 0}px`,
                   opacity: 0.9
                 }}
               />
+              {/* Left overlay */}
               <div
                 className="absolute bg-black pointer-events-none"
                 style={{
-                  top: `${getCropOverlayStyle().top}px`,
+                  top: `${getCropOverlayStyle().top || 0}px`,
                   left: 0,
-                  width: `${getCropOverlayStyle().left}px`,
-                  height: `${getCropOverlayStyle().height}px`,
+                  width: `${getCropOverlayStyle().left || 0}px`,
+                  height: `${getCropOverlayStyle().height || 0}px`,
                   opacity: 0.9
                 }}
               />
+              {/* Right overlay */}
               <div
                 className="absolute bg-black pointer-events-none"
                 style={{
-                  top: `${getCropOverlayStyle().top}px`,
+                  top: `${getCropOverlayStyle().top || 0}px`,
                   right: 0,
-                  width: `${getCropOverlayStyle().left}px`,
-                  height: `${getCropOverlayStyle().height}px`,
+                  width: `${getCropOverlayStyle().left || 0}px`,
+                  height: `${getCropOverlayStyle().height || 0}px`,
                   opacity: 0.9
                 }}
               />
+              {/* Bottom overlay */}
               <div
                 className="absolute bg-black pointer-events-none"
                 style={{
                   bottom: 0,
                   left: 0,
                   right: 0,
-                  height: `${getCropOverlayStyle().top}px`,
+                  height: `${getCropOverlayStyle().top || 0}px`,
                   opacity: 0.9
                 }}
               />
-              <div className="absolute border-2 border-white shadow-lg pointer-events-none"
+              
+              {/* Crop overlay border */}
+              <div 
+                className="absolute border-2 border-white shadow-lg pointer-events-none"
                 style={getCropOverlayStyle()}
               >
                 <div className="absolute inset-0 border border-white/30"></div>
